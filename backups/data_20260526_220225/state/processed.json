@@ -1,0 +1,23 @@
+{
+  "processed": {
+    "material:854739803366:866057943290": {
+      "item_type": "material",
+      "item_id": "866057943290",
+      "course_id": "854739803366",
+      "processed_at": "2026-05-26T15:13:09.377003Z"
+    },
+    "announcement:854739803366:865968104855": {
+      "item_type": "announcement",
+      "item_id": "865968104855",
+      "course_id": "854739803366",
+      "processed_at": "2026-05-26T15:13:09.806947Z"
+    },
+    "assignment:854739803366:866081438684": {
+      "item_type": "assignment",
+      "item_id": "866081438684",
+      "course_id": "854739803366",
+      "processed_at": "2026-05-26T16:23:02.489725Z"
+    }
+  },
+  "updated_at": "2026-05-26T16:23:02.489736Z"
+}

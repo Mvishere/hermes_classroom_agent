@@ -1,0 +1,55 @@
+{
+  "courses": {
+    "854739803366": {
+      "course_id": "854739803366",
+      "course_name": "hermes classroom",
+      "items": [
+        {
+          "id": "866081438684",
+          "course_id": "854739803366",
+          "course_name": "hermes classroom",
+          "title": "Web Development quiz",
+          "description": "",
+          "created_at": "2026-05-26T16:18:35.654Z",
+          "updated_at": "2026-05-26T16:22:05.397Z",
+          "topic_id": "",
+          "submission_state": "",
+          "attachment_paths": [],
+          "processed": 0,
+          "raw_payload": {
+            "courseId": "854739803366",
+            "id": "866081438684",
+            "title": "Web Development quiz",
+            "materials": [
+              {
+                "form": {
+                  "formUrl": "https://docs.google.com/forms/d/e/1FAIpQLSdwPyR8q_-6guGXKlrXyKd0QBNupPuXl4jcM447rLXPT1sbGg/viewform",
+                  "title": "Web development quiz",
+                  "thumbnailUrl": "https://lh5.googleusercontent.com/kWi-vJZRpXj9Et_YF3uMe4lD99Whs9I3nkLj3oI9tnamDuvp4z0_v0RliG54FiG-5zPuHTUsWCIQQic=w90-h90-p"
+                }
+              }
+            ],
+            "state": "PUBLISHED",
+            "alternateLink": "https://classroom.google.com/c/ODU0NzM5ODAzMzY2/a/ODY2MDgxNDM4Njg0/details",
+            "creationTime": "2026-05-26T16:18:35.654Z",
+            "updateTime": "2026-05-26T16:22:05.397Z",
+            "dueDate": {
+              "year": 2026,
+              "month": 5,
+              "day": 28
+            },
+            "dueTime": {
+              "hours": 18,
+              "minutes": 29
+            },
+            "maxPoints": 100,
+            "workType": "ASSIGNMENT",
+            "submissionModificationMode": "MODIFIABLE_UNTIL_TURNED_IN",
+            "creatorUserId": "103589161195737837658"
+          }
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-05-26T16:23:02.488950Z"
+}

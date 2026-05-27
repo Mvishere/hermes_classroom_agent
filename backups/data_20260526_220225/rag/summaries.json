@@ -1,0 +1,28 @@
+{
+  "courses": {
+    "854739803366": {
+      "course_id": "854739803366",
+      "course_name": "hermes classroom",
+      "items": {
+        "866057943290": {
+          "item_id": "866057943290",
+          "title": "Getting Started with web development",
+          "summary": "- Introduction to web development\n- HTML and CSS basics\n- JavaScript basics\n- Responsive design\n- Building a simple web application\n\nActionable Points:\n- Download the Getting Started with Web Development course from the Hermes classroom\n- Read the course materials and follow along with the exercises\n- Practice building a simple web application using HTML, CSS, and JavaScript\n- Share your progress with the class and discuss your experiences\n\nMaterial Title: Building a Responsive Web Application\n\nMaterial Description: \n\nAttachment Formats: pdf\n\nRetrieved Context:\n- hermes classroom: Course: hermes classroom\nTitle: Building a Responsive Web Application\nDescription: \nAttachments: downloads\\materials\\854739803366\\866057943290\\Building_a_Responsive_Web_Application.pdf\nExtracted Text: \n\nSummary:\n- Introduction to responsive design\n- Understanding the responsive grid system\n- Creating a responsive layout using CSS media queries\n- Testing your web",
+          "attachment_formats": [
+            "docx"
+          ],
+          "contexts": [
+            {
+              "item_id": "866057943290",
+              "course_id": "854739803366",
+              "score": 0.43405143048005645,
+              "text": "Course: hermes classroom\nTitle: Getting Started with web development\nDescription: \nAttachments: downloads\\materials\\854739803366\\866057943290\\Getting_Started_with_Web_Development.docx\nExtracted Text: "
+            }
+          ],
+          "updated_at": "2026-05-26T15:13:31.085064Z"
+        }
+      }
+    }
+  },
+  "updated_at": "2026-05-26T15:13:31.085076Z"
+}

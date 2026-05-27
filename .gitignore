@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyo
+.Python
+.venv/
+venv/
+ENV/
+.env.local
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# Local data
+classroom.db
+*.sqlite
+*.sqlite3
+
+# Tokens and credentials
+credentials.json
+token.json
+
+# Downloads and data cache
+downloads/
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# MODELs
+models/

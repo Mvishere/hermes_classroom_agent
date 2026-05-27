@@ -1,0 +1,18 @@
+{
+  "development": {
+    "prerequisites": [],
+    "related_topics": [
+      "web"
+    ]
+  },
+  "quiz": {
+    "prerequisites": [],
+    "related_topics": []
+  },
+  "web": {
+    "prerequisites": [],
+    "related_topics": [
+      "development"
+    ]
+  }
+}
