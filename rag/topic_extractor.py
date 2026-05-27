@@ -186,7 +186,47 @@ class TopicExtractor:
         ]
         if extracted_text:
             parts.append("Attachment Text:\n" + extracted_text)
+        form_text = self._build_form_text(item)
+        if form_text:
+            parts.append("Form Text:\n" + form_text)
         return "\n".join(parts).strip()
+
+    def _build_form_text(self, item: dict) -> str:
+        form_text = item.get("form_text", "")
+        if form_text:
+            return str(form_text)
+
+        questions = item.get("form_questions", [])
+        if not isinstance(questions, list) or not questions:
+            raw_payload = item.get("raw_payload", {}) or {}
+            materials = raw_payload.get("materials", []) if isinstance(raw_payload, dict) else []
+            for material in materials:
+                form = material.get("form") or {}
+                form_title = form.get("title") or ""
+                form_url = form.get("formUrl") or ""
+                if form_title or form_url:
+                    return "\n".join(
+                        part for part in (
+                            f"Form Title: {form_title}" if form_title else "",
+                            f"Form URL: {form_url}" if form_url else "",
+                        )
+                        if part
+                    )
+            return ""
+
+        lines: list[str] = []
+        for index, question in enumerate(questions, start=1):
+            if isinstance(question, dict):
+                title = str(question.get("title", "")).strip()
+                kind = str(question.get("kind", "question")).strip()
+                lines.append(f"Question {index}: {title}")
+                lines.append(f"Type: {kind}")
+                options = question.get("options") or []
+                if options:
+                    lines.append("Options: " + ", ".join(str(option) for option in options))
+            elif question:
+                lines.append(f"Question {index}: {question}")
+        return "\n".join(lines).strip()
 
     def _extract_keywords(self, text: str) -> List[str]:
         tokens = re.findall(r"[A-Za-z][A-Za-z0-9_+-]{2,}", text.lower())

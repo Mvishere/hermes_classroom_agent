@@ -76,3 +76,9 @@ def get_drive_service():
     """Build a Google Drive API service."""
     creds = get_credentials()
     return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+def get_forms_service():
+    """Build a Google Forms API service."""
+    creds = get_credentials()
+    return build("forms", "v1", credentials=creds, cache_discovery=False)

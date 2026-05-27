@@ -102,7 +102,6 @@ class RagPipeline:
         extracted_text = ""
         if config.PDF_EXTRACT_ENABLED:
             extracted_text, _ = self.attachment_extractor.extract(attachments)
-        print(extracted_text)
         return (
             f"Course: {material.get('course_name', '')}\n"
             f"Title: {material.get('title', '')}\n"

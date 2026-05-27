@@ -10,6 +10,7 @@ Features
 - Intent-based routing with embeddings in `chat/router.py`.
 - Topic extraction (`rag/topic_extractor.py`) and graph building (`student/topic_graph_builder.py`).
 - Local RAG pipeline using models in `models/` (optional) and JSON-backed storage in `data/` and `storage/`.
+- Playwright-backed Google Form extraction with a persistent Chromium profile in `quiz_extractor/`.
 
 Quickstart
 
@@ -38,6 +39,28 @@ pytest -q
 python main.py
 ```
 
+Google Form login and extraction
+
+1. Install Playwright's Chromium browser once:
+
+```bash
+python -m playwright install chromium
+```
+
+2. Open a persistent browser profile and sign in manually:
+
+```bash
+python -m quiz_extractor.main login --url "https://docs.google.com/forms/"
+```
+
+3. Extract a specific form and save structured JSON:
+
+```bash
+python -m quiz_extractor.main extract --url "https://docs.google.com/forms/d/e/<FORM_ID>/viewform"
+```
+
+The browser session is saved under `data/browser_profiles/google_forms/` by default and will be reused automatically.
+
 Documentation
 
 - Project overview and architecture: [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)
@@ -47,6 +70,7 @@ Notes
 
 - The repository can run in a reduced mode using the JSON files in `data/` for testing without external APIs or large local models.
 - If you want to generate or edit Word materials locally, install `python-docx` (`pip install python-docx`). A helper created five test `.docx` files in `test_materials/` during an earlier session.
+- Google Form extraction now uses the rendered, authenticated browser DOM instead of anonymous HTML fetches.
 
 Contributing
 

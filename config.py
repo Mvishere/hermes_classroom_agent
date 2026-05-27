@@ -36,6 +36,17 @@ RAG_INDEX_PATH = Path(
 RAG_SUMMARIES_PATH = Path(
     os.getenv("RAG_SUMMARIES_PATH", str(DATA_DIRECTORY / "rag" / "summaries.json"))
 )
+QUIZ_STORAGE_PATH = Path(
+    os.getenv("QUIZ_STORAGE_PATH", str(DATA_DIRECTORY / "quizzes" / "quizzes.json"))
+)
+QUIZ_BROWSER_PROFILE_DIR = Path(
+    os.getenv(
+        "QUIZ_BROWSER_PROFILE_DIR",
+        str(DATA_DIRECTORY / "browser_profiles" / "google_forms"),
+    )
+)
+QUIZ_BROWSER_HEADLESS = os.getenv("QUIZ_BROWSER_HEADLESS", "0").strip() == "1"
+QUIZ_BROWSER_TIMEOUT_MS = int(os.getenv("QUIZ_BROWSER_TIMEOUT_MS", "45000"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -66,6 +77,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/classroom.student-submissions.me.readonly",
     "https://www.googleapis.com/auth/classroom.announcements.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/forms.body.readonly",
 ]
 
 
@@ -81,6 +93,8 @@ def ensure_directories() -> None:
     USER_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     RAG_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
     RAG_SUMMARIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    QUIZ_STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    QUIZ_BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def validate_config() -> None:

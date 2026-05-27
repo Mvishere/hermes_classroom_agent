@@ -23,6 +23,7 @@ from scheduler.polling_scheduler import PollingScheduler
 from storage.file_storage import FileStorage
 from storage.json_store import JsonStore
 from storage.recommendation_store import RecommendationStore
+from storage.quiz_storage import QuizStorage
 from storage.state_manager import StateManager
 from storage.topics_store import TopicsStore
 from storage.user_status import UserStatusManager
@@ -33,6 +34,7 @@ from student.mastery_engine import MasteryEngine
 from student.topic_graph import TopicGraph
 from student.topic_graph_builder import TopicGraphBuilder
 from student.topic_mapper import TopicMapper
+from quiz_extractor.browser.playwright_client import PlaywrightBrowserClient
 
 
 def setup_logging() -> None:
@@ -58,6 +60,8 @@ def run_polling_cycle(
     state_manager: StateManager,
     file_storage: FileStorage,
     drive_service,
+    browser_client,
+    quiz_storage,
     rag_pipeline: RagPipeline,
     user_status: UserStatusManager,
     knowledge_tracker: KnowledgeTracker | None = None,
@@ -69,7 +73,14 @@ def run_polling_cycle(
         json_store.upsert_courses(courses)
 
         new_assignments = process_coursework(
-            courses, client, json_store, state_manager, file_storage, drive_service
+            courses,
+            client,
+            json_store,
+            state_manager,
+            file_storage,
+            drive_service,
+            browser_client,
+            quiz_storage,
         )
         new_materials = process_materials(
             courses, client, json_store, state_manager, file_storage, drive_service
@@ -189,6 +200,7 @@ def main() -> int:
     json_store = JsonStore(config.DATA_DIRECTORY)
     state_manager = StateManager(config.STATE_PATH)
     user_status = UserStatusManager(config.USER_STATUS_PATH)
+    quiz_storage = QuizStorage(config.QUIZ_STORAGE_PATH)
     file_storage = FileStorage(
         config.BASE_DIR, config.DOWNLOAD_DIRECTORY, config.DATA_DIRECTORY
     )
@@ -258,29 +270,30 @@ def main() -> int:
     drive_service = get_drive_service()
     client = ClassroomClient(classroom_service)
 
-    run_polling_cycle(
-        client,
-        json_store,
-        state_manager,
-        file_storage,
-        drive_service,
-        rag_pipeline,
-        user_status,
-        knowledge_tracker,
-    )
+    def _run_with_browser_client() -> None:
+        with PlaywrightBrowserClient(
+            config.QUIZ_BROWSER_PROFILE_DIR,
+            headless=config.QUIZ_BROWSER_HEADLESS,
+            timeout_ms=config.QUIZ_BROWSER_TIMEOUT_MS,
+        ) as browser_client:
+            run_polling_cycle(
+                client,
+                json_store,
+                state_manager,
+                file_storage,
+                drive_service,
+                browser_client,
+                quiz_storage,
+                rag_pipeline,
+                user_status,
+                knowledge_tracker,
+            )
+
+    _run_with_browser_client()
 
     scheduler = PollingScheduler(
         interval_minutes=config.POLL_INTERVAL_MINUTES,
-        job_func=lambda: run_polling_cycle(
-            client,
-            json_store,
-            state_manager,
-            file_storage,
-            drive_service,
-            rag_pipeline,
-            user_status,
-            knowledge_tracker,
-        ),
+        job_func=_run_with_browser_client,
     )
     scheduler.start()
 

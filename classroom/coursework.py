@@ -8,8 +8,10 @@ from typing import List
 
 import config
 from classroom.classroom_client import ClassroomClient
+from classroom.forms import fetch_form_details
 from storage.file_storage import FileStorage
 from storage.json_store import JsonStore
+from storage.quiz_storage import QuizStorage
 from storage.state_manager import StateManager
 
 
@@ -20,6 +22,8 @@ def process_coursework(
     state_manager: StateManager,
     file_storage: FileStorage,
     drive_service,
+    browser_client=None,
+    quiz_storage: QuizStorage | None = None,
 ) -> List[str]:
     """Fetch coursework for each course and store only new items."""
     new_items = []
@@ -38,7 +42,12 @@ def process_coursework(
             item_id = item.get("id")
             if not item_id:
                 continue
-            if state_manager.is_seen("assignment", item_id, course_id):
+
+            form_details = _extract_form_details(item, browser_client)
+            is_seen = state_manager.is_seen("assignment", item_id, course_id)
+            if is_seen and not (
+                form_details.get("form_questions") or form_details.get("form_text")
+            ):
                 continue
 
             record = {
@@ -54,6 +63,7 @@ def process_coursework(
                 "attachment_paths": [],
                 "processed": 0,
             }
+            record.update(form_details)
 
             if config.FETCH_SUBMISSIONS:
                 try:
@@ -76,7 +86,60 @@ def process_coursework(
             record["attachment_paths"] = attachments
 
             json_store.upsert_item("assignments", record, raw_payload=item)
-            state_manager.mark_seen("assignment", item_id, course_id)
-            new_items.append(item_id)
+            if quiz_storage is not None and (
+                record.get("form_questions") or record.get("form_text")
+            ):
+                quiz_storage.upsert_quiz(
+                    {
+                        "quiz_id": record.get("form_id") or record.get("id") or item_id,
+                        "assignment_id": item_id,
+                        "course_id": course_id,
+                        "course_name": course_name,
+                        "title": record.get("form_title") or record.get("title", ""),
+                        "source_url": record.get("form_url", ""),
+                        "questions": record.get("form_questions", []),
+                        "section_titles": record.get("section_titles", []),
+                        "quiz_text": record.get("form_text", ""),
+                        "fetch_status": record.get("form_fetch_status", ""),
+                        "source": record.get("form_source", "playwright_dom"),
+                        "page_url": record.get("form_page_url", record.get("form_url", "")),
+                        "extracted_at": record.get("form_extracted_at", ""),
+                    }
+                )
+            if not is_seen:
+                state_manager.mark_seen("assignment", item_id, course_id)
+                new_items.append(item_id)
 
     return new_items
+
+
+def _extract_form_details(item: dict, browser_client) -> dict:
+    materials = item.get("materials", []) or []
+    for material in materials:
+        form = material.get("form") or {}
+        form_url = form.get("formUrl") or ""
+        if not form_url:
+            continue
+
+        fallback_title = form.get("title") or item.get("title", "")
+        details = fetch_form_details(browser_client, form_url, fallback_title=fallback_title)
+        if details.get("form_questions"):
+            logging.info(
+                "Fetched %s question(s) from Google Form for assignment %s.",
+                len(details.get("form_questions", [])),
+                item.get("id", ""),
+            )
+        else:
+            logging.info(
+                "Google Form detected for assignment %s but no questions were returned.",
+                item.get("id", ""),
+            )
+        return details
+
+    return {
+        "form_url": "",
+        "form_id": "",
+        "form_title": "",
+        "form_questions": [],
+        "form_text": "",
+    }
