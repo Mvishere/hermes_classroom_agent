@@ -1,6 +1,7 @@
 """RAG pipeline for summarizing new materials offline."""
 
 import logging
+import time
 from pathlib import Path
 from typing import List
 
@@ -82,6 +83,11 @@ class RagPipeline:
         for material in materials:
             if self.summary_store.has_summary(material):
                 continue
+            logging.info(
+                "Summarizing material %s (%s)",
+                material.get("title", ""),
+                material.get("id", ""),
+            )
             query = self._build_query(material)
             contexts = self.embedding_index.search(query, config.RAG_TOP_K)
             summary, formats = self._summarize_material(material, contexts)
@@ -96,6 +102,7 @@ class RagPipeline:
         extracted_text = ""
         if config.PDF_EXTRACT_ENABLED:
             extracted_text, _ = self.attachment_extractor.extract(attachments)
+        print(extracted_text)
         return (
             f"Course: {material.get('course_name', '')}\n"
             f"Title: {material.get('title', '')}\n"
@@ -125,6 +132,7 @@ class RagPipeline:
         return prompt, formats
 
     def _summarize_material(self, material: dict, contexts: List[dict]) -> tuple[str, List[str]]:
+        started_at = time.perf_counter()
         attachments = material.get("attachment_paths", [])
         formats: List[str] = []
         chunk_texts: List[str] = []
@@ -137,22 +145,58 @@ class RagPipeline:
             )
 
         if not chunk_texts:
+            logging.info(
+                "No chunked attachment text for %s; summarizing from prompt context only.",
+                material.get("title", ""),
+            )
             prompt, formats = self._build_prompt(material, contexts)
-            return self.llm.generate(prompt), formats
+            summary = self.llm.generate(prompt)
+            logging.info(
+                "Summarized %s in %.2fs using non-chunked prompt.",
+                material.get("title", ""),
+                time.perf_counter() - started_at,
+            )
+            return summary, formats
 
         total_chunks = len(chunk_texts)
         chunk_summaries: List[str] = []
         for index, chunk in enumerate(chunk_texts, start=1):
+            chunk_started_at = time.perf_counter()
+            logging.info(
+                "Summarizing chunk %s/%s for %s (%s chars)",
+                index,
+                total_chunks,
+                material.get("title", ""),
+                len(chunk),
+            )
             prompt = self._build_chunk_prompt(material, formats, chunk, index, total_chunks)
             summary = self.llm.generate(prompt)
             if summary:
                 chunk_summaries.append(summary)
+            logging.info(
+                "Finished chunk %s/%s for %s in %.2fs",
+                index,
+                total_chunks,
+                material.get("title", ""),
+                time.perf_counter() - chunk_started_at,
+            )
 
         if not chunk_summaries:
             prompt, formats = self._build_prompt(material, contexts)
-            return self.llm.generate(prompt), formats
+            summary = self.llm.generate(prompt)
+            logging.info(
+                "Summarized %s in %.2fs using fallback prompt.",
+                material.get("title", ""),
+                time.perf_counter() - started_at,
+            )
+            return summary, formats
 
         final_summary = self._reduce_summaries(material, formats, contexts, chunk_summaries)
+        logging.info(
+            "Completed summarizing %s in %.2fs",
+            material.get("title", ""),
+            time.perf_counter() - started_at,
+        )
         return final_summary, formats
 
     def _build_context_block(self, contexts: List[dict]) -> str:
@@ -242,6 +286,7 @@ class RagPipeline:
         contexts: List[dict],
         summaries: List[str],
     ) -> str:
+        started_at = time.perf_counter()
         max_chars = config.RAG_COMBINE_MAX_CHARS
         current = [summary.strip() for summary in summaries if summary and summary.strip()]
         if not current:
@@ -250,6 +295,12 @@ class RagPipeline:
         while len(current) > 1 and max_chars and len(self._summaries_to_text(current)) > max_chars:
             batches = self._batch_summaries(current, max_chars)
             reduced = []
+            logging.info(
+                "Reducing %s chunk summaries into %s batch(es) for %s",
+                len(current),
+                len(batches),
+                material.get("title", ""),
+            )
             for batch in batches:
                 prompt = self._build_reduce_prompt(
                     material,
@@ -257,9 +308,15 @@ class RagPipeline:
                     self._summaries_to_text(batch),
                     "",
                 )
+                batch_started_at = time.perf_counter()
                 reduced_summary = self.llm.generate(prompt)
                 if reduced_summary:
                     reduced.append(reduced_summary)
+                logging.info(
+                    "Finished reduction batch for %s in %.2fs",
+                    material.get("title", ""),
+                    time.perf_counter() - batch_started_at,
+                )
             current = reduced
             if not current:
                 return ""
@@ -271,7 +328,13 @@ class RagPipeline:
             self._summaries_to_text(current),
             context_block,
         )
-        return self.llm.generate(final_prompt)
+        final_summary = self.llm.generate(final_prompt)
+        logging.info(
+            "Final reduction for %s completed in %.2fs",
+            material.get("title", ""),
+            time.perf_counter() - started_at,
+        )
+        return final_summary
 
     def _summaries_to_text(self, summaries: List[str]) -> str:
         lines = []
@@ -304,3 +367,7 @@ class RagPipeline:
         if current:
             batches.append(current)
         return batches
+
+if __name__ == "__main__":
+    pipeline = RagPipeline()
+    pipeline.process_new_materials(JsonStore(config.BASE_DIR), [])

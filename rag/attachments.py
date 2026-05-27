@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import List, Tuple
 
+from docx import Document
 from pypdf import PdfReader
 
 
@@ -28,6 +29,10 @@ class AttachmentTextExtractor:
 
             if suffix == ".pdf":
                 text = self._extract_pdf(path)
+                if text:
+                    text_chunks.append(text)
+            elif suffix == ".docx":
+                text = self._extract_docx(path)
                 if text:
                     text_chunks.append(text)
 
@@ -82,4 +87,20 @@ class AttachmentTextExtractor:
 
         except Exception:
             logging.exception("Failed to extract PDF text: %s", path)
+            return ""
+
+    def _extract_docx(self, path: Path) -> str:
+        if not path.exists():
+            return ""
+
+        try:
+            document = Document(str(path))
+            lines = []
+            for paragraph in document.paragraphs:
+                text = paragraph.text.strip()
+                if text:
+                    lines.append(text)
+            return "\n".join(lines)
+        except Exception:
+            logging.exception("Failed to extract DOCX text: %s", path)
             return ""
