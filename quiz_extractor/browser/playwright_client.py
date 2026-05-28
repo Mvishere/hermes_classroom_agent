@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -35,27 +36,58 @@ class PlaywrightBrowserClient:
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
         self._playwright = sync_playwright().start()
         browser_executable = self._resolve_browser_executable()
-        self._context = self._playwright.chromium.launch_persistent_context(
-            user_data_dir=str(self.user_data_dir),
-            headless=self.headless,
-            viewport={"width": 1440, "height": 1800},
-            args=["--disable-blink-features=AutomationControlled"],
-            executable_path=str(browser_executable) if browser_executable is not None else None,
-        )
+        launch_kwargs = {
+            "user_data_dir": str(self.user_data_dir),
+            "headless": self.headless,
+            "viewport": {"width": 1440, "height": 1800},
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        if browser_executable is not None:
+            launch_kwargs["executable_path"] = str(browser_executable)
+
+        try:
+            self._context = self._playwright.chromium.launch_persistent_context(**launch_kwargs)
+        except Exception as exc:
+            self._playwright.stop()
+            self._playwright = None
+            raise RuntimeError(self._browser_install_message()) from exc
         self._context.set_default_timeout(self.timeout_ms)
         self._context.set_default_navigation_timeout(self.timeout_ms)
         logging.info("Started persistent Chromium profile at %s", self.user_data_dir)
         return self._context
 
     def _resolve_browser_executable(self) -> Path | None:
+        override = os.getenv("QUIZ_BROWSER_EXECUTABLE_PATH", "").strip()
+        if override:
+            candidate = Path(override).expanduser()
+            if candidate.exists():
+                return candidate
+            raise FileNotFoundError(f"QUIZ_BROWSER_EXECUTABLE_PATH does not exist: {candidate}")
+
         candidates = [
-            Path.home() / "AppData" / "Local" / "ms-playwright" / "chromium-1223" / "chrome-win64" / "chrome.exe",
-            Path.home() / "AppData" / "Local" / "ms-playwright" / "chromium" / "chrome-win64" / "chrome.exe",
+            *sorted(
+                Path.home().glob("AppData/Local/ms-playwright/chromium-*/chrome-win*/chrome.exe"),
+                reverse=True,
+            ),
+            Path.home() / "AppData" / "Local" / "ms-playwright" / "chromium" / "chrome-win" / "chrome.exe",
+            Path(os.getenv("PROGRAMFILES", r"C:\Program Files")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.getenv("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.getenv("PROGRAMFILES", r"C:\Program Files")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+            Path(os.getenv("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+            Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
         ]
         for candidate in candidates:
             if candidate.exists():
                 return candidate
         return None
+
+    def _browser_install_message(self) -> str:
+        return (
+            "Playwright Chromium is not installed. Run `python -m playwright install chromium` "
+            "inside the active virtual environment, or set QUIZ_BROWSER_EXECUTABLE_PATH to an "
+            "existing Chrome/Edge executable."
+        )
 
     def new_page(self):
         """Create a new page from the persistent browser context."""

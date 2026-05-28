@@ -215,7 +215,6 @@ def main() -> int:
     mastery_engine = MasteryEngine()
     topic_mapper = TopicMapper(topic_graph)
     inference_rules = InferenceRules(mastery_engine, topic_mapper)
-    graph_builder = TopicGraphBuilder(topic_graph)
 
     embedding_model = None
     if config.EMBEDDING_MODEL_PATH:
@@ -229,6 +228,14 @@ def main() -> int:
                 "Embedding model path not found for topic extraction: %s",
                 config.EMBEDDING_MODEL_PATH,
             )
+
+    graph_builder = TopicGraphBuilder(
+        topic_graph,
+        embedding_model=embedding_model,
+        min_edge_weight=config.TOPIC_GRAPH_MIN_EDGE_WEIGHT,
+        max_related=config.TOPIC_GRAPH_MAX_RELATED,
+        debug=config.TOPIC_GRAPH_DEBUG,
+    )
 
     topic_llm = None
     if config.TOPIC_EXTRACT_LLM_ENABLED and config.LLM_MODEL_PATH:
@@ -253,6 +260,7 @@ def main() -> int:
         embedding_model=embedding_model,
         keyword_limit=config.TOPIC_EXTRACT_KEYWORD_LIMIT,
         max_chars=config.TOPIC_EXTRACT_MAX_CHARS,
+        debug=config.TOPIC_GRAPH_DEBUG,
     )
     recommender = Recommender(topic_graph, knowledge_store)
     knowledge_tracker = KnowledgeTracker(

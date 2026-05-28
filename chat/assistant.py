@@ -38,6 +38,7 @@ class ChatAssistant:
         top_k: int = 3,
         max_context_chars: int = 3500,
         max_history_turns: int = 3,
+        history_limit: int = 50,
         similarity_threshold: float = 0.39,
     ) -> None:
         self.json_store = JsonStore(data_dir)
@@ -52,6 +53,7 @@ class ChatAssistant:
         self.top_k = top_k
         self.max_context_chars = max_context_chars
         self.max_history_turns = max_history_turns
+        self.history_limit = max(2, history_limit)
         self.similarity_threshold = similarity_threshold
         self._documents: List[ChatDocument] = []
         self._embeddings: np.ndarray | None = None
@@ -110,7 +112,7 @@ class ChatAssistant:
         if self.max_context_chars and len(context_block) > self.max_context_chars:
             context_block = context_block[: self.max_context_chars]
 
-        history_block = self._build_history()
+        history_block = self._build_history(question)
         prompt = (
             "You are a helpful study assistant. CRITICAL RULES:\n"
             "1. Answer ONLY using information from the context below.\n"
@@ -174,8 +176,8 @@ class ChatAssistant:
             parts.append(f"Summary: {summary}")
         return "\n".join(parts).strip()
 
-    def _build_history(self) -> str:
-        if not self._history:
+    def _build_history(self, question: str) -> str:
+        if not self._history or not self._should_include_history(question):
             return ""
         turns = self._history[-self.max_history_turns :]
         lines = []
@@ -186,6 +188,8 @@ class ChatAssistant:
 
     def _record_turn(self, question: str, response: str) -> None:
         self._history.append((question.strip(), response.strip()))
+        if len(self._history) > self.history_limit:
+            self._history = self._history[-self.history_limit :]
 
     def _sanitize_response(self, response: str) -> str:
         if not response:
@@ -197,6 +201,29 @@ class ChatAssistant:
         if text.lower().startswith("answer:"):
             text = text.split(":", 1)[1].strip()
         return text
+
+    def _should_include_history(self, question: str) -> bool:
+        lowered = question.lower()
+        follow_up_markers = (
+            "it",
+            "that",
+            "those",
+            "these",
+            "them",
+            "they",
+            "same",
+            "previous",
+            "earlier",
+            "above",
+            "also",
+            "follow up",
+            "follow-up",
+            "compare",
+            "instead",
+            "then",
+            "next",
+        )
+        return any(marker in lowered for marker in follow_up_markers)
 
     def _try_structured_answer(self, question: str) -> str | None:
         lowered = question.lower()

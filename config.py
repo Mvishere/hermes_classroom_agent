@@ -69,6 +69,10 @@ RAG_COMBINE_MAX_CHARS = int(os.getenv("RAG_COMBINE_MAX_CHARS", "6000"))
 TOPIC_EXTRACT_MAX_CHARS = int(os.getenv("TOPIC_EXTRACT_MAX_CHARS", "4000"))
 TOPIC_EXTRACT_LLM_ENABLED = os.getenv("TOPIC_EXTRACT_LLM_ENABLED", "1").strip() == "1"
 TOPIC_EXTRACT_KEYWORD_LIMIT = int(os.getenv("TOPIC_EXTRACT_KEYWORD_LIMIT", "12"))
+TOPIC_GRAPH_DEBUG = os.getenv("TOPIC_GRAPH_DEBUG", "0").strip() == "1"
+TOPIC_GRAPH_MIN_EDGE_WEIGHT = float(os.getenv("TOPIC_GRAPH_MIN_EDGE_WEIGHT", "0.65"))
+TOPIC_GRAPH_MAX_RELATED = int(os.getenv("TOPIC_GRAPH_MAX_RELATED", "6"))
+TOPIC_GRAPH_MIN_TOPIC_FREQUENCY = int(os.getenv("TOPIC_GRAPH_MIN_TOPIC_FREQUENCY", "2"))
 
 SCOPES = [
     "https://www.googleapis.com/auth/classroom.courses.readonly",

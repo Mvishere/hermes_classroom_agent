@@ -1,0 +1,37 @@
+How many materials do I currently have in Classroom data?
+How many assignments are pending right now, and how many have been returned?
+What are the titles of all announcements, and which one is the most recent?
+What course names am I enrolled in, and can you list them in alphabetical order?
+Summarize the most recent material for me.
+Summarize all assignments briefly.
+What is the title of my most recent quiz or assignment?
+Tell me the announcement title for my latest announcement.
+Do I have any announcement about homework deadlines?
+How many materials mention HTML or CSS?
+How many assignments mention quizzes, and how many mention forms?
+Which item is more recent: the latest material or the latest announcement?
+What are the prerequisites for an assignment about responsive web design?
+Explain whether I seem ready for a CSS Grid assignment.
+What topics are related to JavaScript events in my data?
+What should I review before learning DOM manipulation?
+Which course item most likely requires HTML, CSS, and responsive design knowledge?
+Compare the likely difficulty of a beginner HTML quiz and an advanced CSS layout assignment.
+Which materials or assignments mention flexbox, grid, or media queries?
+What is the most recent material title, and what does its summary say?
+List all assignment titles that look like quizzes.
+Tell me if there is any material about responsive design.
+Which announcement would matter most if I am missing homework?
+What course data is missing or incomplete in the local JSON?
+How many announcements, materials, and assignments are stored locally?
+If I ask about prerequisites for responsive design, what topics should I know first?
+What topics appear to be foundation topics for JavaScript events?
+Which item mentions both HTML and CSS in the title or description?
+Can you identify the most recent material and explain why it seems most relevant?
+What is the summary of the most recent material in one sentence?
+Do I have any materials that look like lecture notes versus assignments?
+What is the likely domain of the latest material?
+Which assignment would you recommend I study first if I know very little CSS?
+What topics do you think are noisy or generic in the data, and which are meaningful?
+How many materials were summarized today?
+What is the title of the material related to HTML and CSS notes?
+If I only have 10 minutes, which local item should I review first and why?
