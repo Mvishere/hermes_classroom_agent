@@ -1,13 +1,34 @@
-"""Local LLM wrapper for offline summarization."""
+"""Qwen2.5 local LLM facade for educational inference tasks."""
 
-from typing import Optional
+from __future__ import annotations
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import concurrent.futures
+import logging
+import time
+from dataclasses import dataclass
+from typing import Iterable, Optional
+
+import config
+from rag.model_loader import load_qwen_backend
+from rag.prompts import grounded_system_prompt
+
+
+@dataclass(slots=True)
+class GenerationStats:
+    load_seconds: float = 0.0
+    prompt_chars: int = 0
+    prompt_tokens: int = 0
+    response_tokens: int = 0
+    inference_seconds: float = 0.0
+    timed_out: bool = False
 
 
 class LocalLLM:
-    """Loads a local causal LM and generates summaries."""
+    """Compatibility facade for the rest of the agent stack.
+
+    The facade keeps the previous `generate(prompt)` API but routes all
+    generation through a configurable Qwen2.5 backend.
+    """
 
     def __init__(
         self,
@@ -15,56 +36,107 @@ class LocalLLM:
         device: str = "cpu",
         max_new_tokens: int = 256,
         temperature: float = 0.2,
-    ):
+    ) -> None:
         if not model_path:
             raise ValueError("LLM model path is required.")
-        self.device = torch.device(device)
-        self.max_new_tokens = max_new_tokens
-        self.temperature = temperature
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path, use_fast=False, local_files_only=True
+        self.model_path = model_path
+        self.device = device
+        self.max_new_tokens = max_new_tokens or config.LLM_MAX_NEW_TOKENS
+        self.temperature = temperature if temperature is not None else config.LLM_TEMPERATURE
+        self.top_p = config.LLM_TOP_P
+        self.context_length = config.LLM_CONTEXT_LENGTH
+        self.timeout_seconds = config.LLM_TIMEOUT_SECONDS
+        self.backend_name = config.LLM_BACKEND
+        started_at = time.perf_counter()
+        self.backend = load_qwen_backend(
+            model_path,
+            backend=self.backend_name,
+            device=device or config.LLM_DEVICE,
+            context_length=self.context_length,
+            quantization=config.LLM_QUANTIZATION,
+            gpu_layers=config.LLM_GPU_LAYERS,
+            threads=config.LLM_NUM_THREADS,
         )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path, local_files_only=True
+        self.load_seconds = time.perf_counter() - started_at
+        logging.info(
+            "Qwen model loaded from %s via %s in %.2fs",
+            model_path,
+            self.backend_name,
+            self.load_seconds,
         )
-        self.model.to(self.device)
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
-    def generate(self, prompt: str) -> str:
-        max_input_tokens = self._get_max_input_tokens()
-        inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=max_input_tokens,
-        ).to(self.device)
-        input_len = inputs["input_ids"].shape[1]
-        total_max_length = min(
-            input_len + self.max_new_tokens,
-            self._get_model_max_length(),
+    def generate(self, prompt: str, *, system_prompt: str | None = None, timeout_seconds: Optional[int] = None) -> str:
+        stats = GenerationStats(
+            load_seconds=self.load_seconds,
+            prompt_chars=len(prompt),
+            prompt_tokens=self._estimate_tokens(prompt),
         )
-        output_ids = self.model.generate(
-            **inputs,
-            max_length=total_max_length,
-            do_sample=self.temperature > 0,
-            **({"temperature": self.temperature} if self.temperature > 0 else {}),
-            pad_token_id=self.tokenizer.pad_token_id,
+        started_at = time.perf_counter()
+        effective_timeout = timeout_seconds or self.timeout_seconds
+        system_prompt = system_prompt or grounded_system_prompt()
+        payload = f"{system_prompt}\n\n{prompt}"
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    self.backend.generate,
+                    payload,
+                    max_new_tokens=self.max_new_tokens,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                )
+                response = future.result(timeout=effective_timeout)
+        except concurrent.futures.TimeoutError:
+            stats.timed_out = True
+            logging.warning(
+                "Qwen inference timed out after %ss (prompt_chars=%s, prompt_tokens~%s)",
+                effective_timeout,
+                stats.prompt_chars,
+                stats.prompt_tokens,
+            )
+            return "I don't have enough information in the local course data to answer that reliably."
+        except Exception:
+            logging.exception("Qwen inference failed.")
+            return "I don't have enough information in the local course data to answer that reliably."
+
+        stats.inference_seconds = time.perf_counter() - started_at
+        stats.response_tokens = self._estimate_tokens(response)
+        logging.info(
+            "Qwen inference finished in %.2fs (prompt_chars=%s, prompt_tokens~%s, response_tokens~%s)",
+            stats.inference_seconds,
+            stats.prompt_chars,
+            stats.prompt_tokens,
+            stats.response_tokens,
         )
-        generated_ids = output_ids[0][input_len:]
-        return self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+        return self._sanitize_response(response)
 
-    def _get_max_input_tokens(self) -> int:
-        model_max = self._get_model_max_length()
-        max_input = int(model_max) - int(self.max_new_tokens) - 1
-        return max(1, max_input)
+    def stream(self, prompt: str, *, system_prompt: str | None = None):
+        system_prompt = system_prompt or grounded_system_prompt()
+        payload = f"{system_prompt}\n\n{prompt}"
+        if hasattr(self.backend, "stream"):
+            yield from self.backend.stream(
+                payload,
+                max_new_tokens=self.max_new_tokens,
+                temperature=self.temperature,
+                top_p=self.top_p,
+            )
+        else:
+            yield self.generate(prompt, system_prompt=system_prompt)
 
-    def _get_model_max_length(self) -> int:
-        model_max = getattr(self.tokenizer, "model_max_length", None)
-        if not model_max or model_max > 100000:
-            model_max = 2048
+    def _estimate_tokens(self, text: str) -> int:
+        try:
+            tokenizer = getattr(self.backend, "tokenizer", None)
+            if tokenizer is not None:
+                return len(tokenizer.encode(text))
+        except Exception:
+            pass
+        return max(1, len(text) // 4)
 
-        config_max = getattr(getattr(self.model, "config", None), "max_position_embeddings", None)
-        if config_max:
-            model_max = min(model_max, int(config_max))
-        return int(model_max)
+    def _sanitize_response(self, response: str) -> str:
+        if not response:
+            return response
+        text = response.strip()
+        for marker in ("Question:", "Student:", "Assistant:"):
+            if marker in text:
+                text = text.split(marker, 1)[0].strip()
+        return text

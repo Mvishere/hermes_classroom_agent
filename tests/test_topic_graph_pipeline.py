@@ -128,3 +128,31 @@ def test_topic_graph_builder_creates_weighted_hierarchy(tmp_path: Path) -> None:
     assert "Media Queries" in node["subtopics"]
     assert any(edge["topic"] == "CSS Grid" and edge["weight"] >= 0.8 for edge in node["related_topics"])
     assert graph_path.exists()
+
+
+def test_topic_extractor_avoids_title_headings(tmp_path: Path) -> None:
+    extractor = TopicExtractor(
+        tmp_path,
+        None,
+        llm=FakeLLM(),
+        embedding_model=FakeEmbeddingModel(),
+        keyword_limit=6,
+        max_chars=2000,
+    )
+
+    item = {
+        "id": "a1",
+        "course_id": "c1",
+        "course_name": "Web Design",
+        "title": "Web development quiz",
+        "description": "Quiz about HTML, CSS, responsive design, and media queries.",
+        "attachment_paths": [],
+    }
+
+    payload = extractor.extract(item, "assignments")
+
+    joined = " ".join(payload.get("topics", []) + payload.get("subtopics", []) + payload.get("prerequisites", []))
+    assert "Web Development Quiz" not in joined
+    assert "Title" not in joined
+    assert "Quiz" not in payload.get("topics", [])
+    assert any(topic in joined for topic in ("HTML", "CSS", "Responsive Design", "Media Queries"))

@@ -33,6 +33,23 @@ _CUSTOM_STOPWORDS = {
     "items",
     "thing",
     "things",
+    "note",
+    "notes",
+    "full",
+    "type",
+    "your",
+    "next",
+    "making",
+    "different",
+    "getting",
+    "started",
+    "document",
+    "intended",
+    "through",
+    "classroom",
+    "designed",
+    "multiplechoice",
+    "thi",
     "problem",
     "problems",
     "question",
@@ -235,14 +252,47 @@ class TopicCleaner:
         text = re.sub(r"\s+", " ", text).strip()
         if not text:
             return ""
-
         tokens = [self.normalize_token(token) for token in self.tokenize(text)]
         tokens = [token for token in tokens if token and not self.is_noise_token(token)]
         if not tokens:
             return ""
 
-        if len(tokens) == 1 and tokens[0] not in _ALLOWED_SHORT_FORMS and len(tokens[0]) < 4:
+        # Reject phrases that are clearly metadata or filenames
+        metadata_tokens = {
+            "title",
+            "attachment",
+            "text",
+            "note",
+            "notes",
+            "document",
+            "file",
+            "classroom",
+            "material",
+            "quiz",
+            "announcement",
+        }
+        if any(tok in metadata_tokens for tok in tokens):
             return ""
+
+        # Reject malformed phrases
+        if len(tokens) > 4:
+            return ""
+        # repeated words (e.g., "html html html")
+        if len(set(tokens)) == 1 and len(tokens) > 1:
+            return ""
+
+        # reject phrases with mostly stopwords
+        stop_count = sum(1 for tok in tokens if self.is_noise_token(tok))
+        if stop_count / max(1, len(tokens)) > 0.6:
+            return ""
+
+        # short single-word whitelist
+        if len(tokens) == 1:
+            token = tokens[0]
+            if token in _ALLOWED_SHORT_FORMS or token.capitalize() in {"HTML", "CSS", "JavaScript", "Flexbox", "React", "Python", "API"}:
+                return token
+            if len(token) < 4:
+                return ""
 
         return " ".join(tokens)
 

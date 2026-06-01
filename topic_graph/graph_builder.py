@@ -126,7 +126,7 @@ class SemanticTopicGraphBuilder:
             self.graph.replace(graph_payload)
 
     def _primary_topic(self, payload: dict) -> str:
-        for key in ("primary_topic", "title"):
+        for key in ("primary_topic",):
             value = payload.get(key)
             if value:
                 mapped = self.ontology.map_topic(value)

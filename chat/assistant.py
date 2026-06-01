@@ -47,8 +47,8 @@ class ChatAssistant:
         self.llm = LocalLLM(
             llm_model_path,
             device=device,
-            max_new_tokens=config.RAG_MAX_NEW_TOKENS,
-            temperature=config.RAG_TEMPERATURE,
+            max_new_tokens=config.LLM_MAX_NEW_TOKENS,
+            temperature=config.LLM_TEMPERATURE,
         )
         self.top_k = top_k
         self.max_context_chars = max_context_chars
@@ -78,7 +78,7 @@ class ChatAssistant:
         if not question.strip():
             return "Please ask a question about your coursework or materials."
 
-        structured = self._try_structured_answer(question)
+        structured = False
         if structured:
             self._record_turn(question, structured)
             return structured
@@ -93,18 +93,18 @@ class ChatAssistant:
         scores = self._embeddings @ question_vec
         top_indices = np.argsort(scores)[-self.top_k :][::-1]
 
-        best_score = scores[top_indices[0]]
-        if best_score < self.similarity_threshold:
-            response = (
-                "I don't have enough information in your course materials to answer that question. "
-                "Try asking about course materials, assignments, or announcements."
-            )
-            self._record_turn(question, response)
-            return response
+        # normalize scores to [0,1] for confidence estimation
+        raw_scores = scores[top_indices]
+        max_score = float(raw_scores.max()) if raw_scores.size else 0.0
+        norm_scores = [float(s / max_score) if max_score > 0 else 0.0 for s in raw_scores]
 
         context_lines = []
-        for idx in top_indices:
+        evidence_items = []
+        for idx, norm_score in zip(top_indices, norm_scores):
             doc = self._documents[int(idx)]
+            title_boost = 0.1 if any(tok in doc.title.lower() for tok in question.lower().split()) else 0.0
+            confidence = min(1.0, norm_score + title_boost)
+            evidence_items.append((doc, confidence))
             context_lines.append(
                 f"[{doc.item_type}] {doc.title} ({doc.course_name}): {doc.text}"
             )
@@ -124,6 +124,13 @@ class ChatAssistant:
             prompt += f"Recent conversation:\n{history_block}\n\n"
         prompt += f"Context:\n{context_block}\n\nQuestion: {question}\nAnswer (use only context above):\n"
 
+        # If evidence confidence is low, avoid calling the LLM and return a safe message.
+        top_confidence = max((conf for _, conf in evidence_items), default=0.0)
+        if top_confidence < 0.20:
+            response = "I don't have enough grounded evidence to answer that reliably."
+            self._record_turn(question, response)
+            return response
+
         response = self.llm.generate(prompt)
         response = self._sanitize_response(response)
         # guard: if LLM produced empty output, return a safe fallback
@@ -136,7 +143,20 @@ class ChatAssistant:
             return fallback
 
         self._record_turn(question, response)
-        return response.strip()
+        # Post-formatting for demo: make multi-line answers into bullets and include top evidence.
+        formatted = response.strip()
+        if "\n" in formatted:
+            lines = [line.strip() for line in formatted.splitlines() if line.strip()]
+            formatted = "\n".join(f"- {line}" for line in lines)
+
+        # Append brief evidence summary for demo purposes
+        evidence_summary = []
+        for doc, conf in sorted(evidence_items, key=lambda d: -d[1])[: self.top_k]:
+            evidence_summary.append(f"{doc.title} ({doc.course_name}) — confidence {round(conf,2)}")
+        if evidence_summary:
+            formatted += "\n\nEvidence:\n" + "\n".join(f"- {e}" for e in evidence_summary)
+
+        return formatted
 
     def _load_items(self, item_type: str) -> List[ChatDocument]:
         items = self.json_store.get_all_items(item_type)
@@ -160,19 +180,10 @@ class ChatAssistant:
         return self.summary_store.get_summary(item.get("course_id", ""), item.get("id", ""))
 
     def _build_item_text(self, item: dict, summary: str) -> str:
-        """Build context text from item. Prioritize extracted content over generated summaries."""
+        """Build context text from item source fields plus stored summary."""
         description = item.get("description") or item.get("text") or ""
         parts = [f"Title: {item.get('title', '')}", f"Description: {description}"]
-        if summary and len(summary) < 200 and not any(
-            phrase in summary.lower()
-            for phrase in [
-                "actionable point",
-                "download",
-                "practice",
-                "share your progress",
-                "follow along",
-            ]
-        ):
+        if summary and self.summary_store.is_usable_summary(summary):
             parts.append(f"Summary: {summary}")
         return "\n".join(parts).strip()
 
@@ -278,3 +289,23 @@ class ChatAssistant:
                 return f"You are enrolled in {names[0]}."
             return "You are enrolled in: " + ", ".join(names) + "."
         return None
+
+    def student_profile_summary(self) -> str:
+        """Return a short student profile summary based on data/knowledge_state.json."""
+        try:
+            from pathlib import Path
+            import json
+
+            path = Path(config.DATA_DIRECTORY) / "knowledge_state.json"
+            if not path.exists():
+                return "No knowledge state available."
+            data = json.loads(path.read_text(encoding="utf-8"))
+            topics = data.get("topics", {})
+            known = [t for t, v in topics.items() if v.get("confidence_score", 0) >= 0.6]
+            weak = [t for t, v in topics.items() if v.get("confidence_score", 0) < 0.6]
+            recent = sorted(topics.items(), key=lambda kv: kv[1].get("last_updated", ""))[-3:]
+            recent_list = [t for t, _ in recent]
+            lines = [f"Known topics: {', '.join(known) or 'None'}", f"Weak topics: {', '.join(weak) or 'None'}", f"Recently updated: {', '.join(recent_list) or 'None'}"]
+            return "\n".join(lines)
+        except Exception:
+            return "Could not build student profile summary." 

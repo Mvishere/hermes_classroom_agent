@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
@@ -93,6 +93,11 @@ class SemanticTopicExtractor:
         mapped_subtopics = self._deduplicate_topics(self.ontology_mapper.map_topic(topic) for topic in subtopics)
         mapped_prerequisites = self._deduplicate_topics(self.ontology_mapper.map_topic(topic) for topic in prerequisites)
         mapped_related = self._deduplicate_topics(self.ontology_mapper.map_topic(topic) for topic in related_topics)
+
+        mapped_primary = mapped_primary if self._keep_topic(mapped_primary) else ""
+        mapped_subtopics = [topic for topic in mapped_subtopics if self._keep_topic(topic)]
+        mapped_prerequisites = [topic for topic in mapped_prerequisites if self._keep_topic(topic)]
+        mapped_related = [topic for topic in mapped_related if self._keep_topic(topic)]
 
         topics = self._deduplicate_topics([mapped_primary] + mapped_subtopics)
         concepts = self._deduplicate_topics(topics + mapped_prerequisites + mapped_related)
@@ -189,6 +194,7 @@ class SemanticTopicExtractor:
         mapped = [self.ontology_mapper.map_topic(candidate) for candidate in cleaned]
         if self.embedding_model:
             mapped = self._merge_by_semantics(mapped)
+        mapped = [topic for topic in mapped if self._keep_topic(topic)]
         return self._deduplicate_topics(mapped)[: self.keyword_limit]
 
     def _sentence_candidates(self, sentence: str) -> List[str]:
@@ -227,7 +233,7 @@ class SemanticTopicExtractor:
         return [token for token in ranked if not self.cleaner.is_noise_token(token)]
 
     def _top_keywords(self, candidates: List[str]) -> List[str]:
-        return self._deduplicate_topics(candidates)[: self.keyword_limit]
+        return [topic for topic in self._deduplicate_topics(candidates) if self._keep_topic(topic)][: self.keyword_limit]
 
     def _build_structured_payload(self, text: str, candidates: List[str], item: dict) -> dict:
         primary_topic = self._choose_primary_topic(text, candidates, item)
@@ -264,13 +270,14 @@ class SemanticTopicExtractor:
             if len(display.split()) > 1:
                 score += 1.0
             if candidate in self._deduplicate_topics(title_candidates):
-                score += 1.5
+                score += 0.25
             if any(word in candidate.lower() for word in ("design", "query", "event", "manipulation", "responsive", "grid", "flexbox", "javascript", "css", "html")):
                 score += 0.8
             score += min(1.0, len(candidate.split()) * 0.25)
             scored.append((display, score))
         scored.sort(key=lambda pair: (-pair[1], pair[0].lower()))
-        return scored[0][0]
+        best = scored[0][0]
+        return best if self._keep_topic(best) else ""
 
     def _infer_subtopics(self, primary_topic: str, candidates: List[str]) -> List[str]:
         if not primary_topic:
@@ -295,16 +302,9 @@ class SemanticTopicExtractor:
     def _extract_with_llm(self, text: str, heuristic_payload: dict) -> dict:
         if not self.llm or not config.TOPIC_EXTRACT_LLM_ENABLED:
             return {}
-        prompt = (
-            "You are structuring educational content for a student knowledge graph. "
-            "Return JSON with keys: primary_topic, subtopics, prerequisites, related_topics, domain, difficulty. "
-            "Use concise educational concepts only. Prefer canonical names such as HTML, CSS, JavaScript, DOM, "
-            "Responsive Design, Media Queries, Flexbox, and JavaScript Events. "
-            "Avoid generic words like what, when, test, topic, page, section, and layout. "
-            "\n\nHeuristic hint:\n"
-            f"{json.dumps(heuristic_payload, ensure_ascii=True)}\n\n"
-            f"Text:\n{text}\n"
-        )
+        from rag.prompts import topic_extraction_prompt
+
+        prompt = topic_extraction_prompt(text, heuristic_payload)
         try:
             response = self.llm.generate(prompt)
         except Exception:
@@ -314,13 +314,21 @@ class SemanticTopicExtractor:
         payload = self._parse_json(response)
         if not isinstance(payload, dict):
             return {}
+
+        # Validate and normalize schema
+        main = payload.get("main_topics") or []
+        sub = payload.get("subtopics") or []
+        prereq = payload.get("prerequisites") or []
+        domain = str(payload.get("domain") or "").strip()
+        difficulty = self._normalize_difficulty(payload.get("difficulty", "unknown"))
+
         return {
-            "primary_topic": self.ontology_mapper.map_topic(payload.get("primary_topic", "")),
-            "subtopics": self._deduplicate_topics(payload.get("subtopics", [])),
-            "prerequisites": self._deduplicate_topics(payload.get("prerequisites", [])),
-            "related_topics": self._deduplicate_topics(payload.get("related_topics", [])),
-            "domain": str(payload.get("domain", "") or ""),
-            "difficulty": self._normalize_difficulty(payload.get("difficulty", "unknown")),
+            "primary_topic": self.ontology_mapper.map_topic(main[0]) if main else "",
+            "subtopics": self._deduplicate_topics(sub),
+            "prerequisites": self._deduplicate_topics(prereq),
+            "related_topics": [],
+            "domain": domain,
+            "difficulty": difficulty,
         }
 
     def _parse_json(self, response: str) -> dict:
@@ -350,6 +358,71 @@ class SemanticTopicExtractor:
                 *llm_payload.get(key, []),
             ])
         return merged
+
+    def _keep_topic(self, topic: str) -> bool:
+        """Reject heading-like or document-label phrases before they reach storage."""
+        topic = self.ontology_mapper.map_topic(topic)
+        if not topic:
+            return False
+        if self.ontology_mapper.is_known(topic):
+            return True
+
+        tokens = [token for token in self.cleaner.tokenize(topic) if token]
+        if not tokens:
+            return False
+
+        if len(tokens) == 1:
+            return tokens[0] in {"api", "html", "css", "dom", "js", "ux", "ui", "sql", "ml", "nlp", "oop"}
+
+        concept_tokens = {
+            "api",
+            "html",
+            "css",
+            "javascript",
+            "js",
+            "dom",
+            "responsive",
+            "grid",
+            "flexbox",
+            "media",
+            "query",
+            "queries",
+            "function",
+            "event",
+            "fetch",
+            "data",
+            "integration",
+            "conditional",
+            "manipulation",
+            "forms",
+            "form",
+            "tables",
+        }
+        if not any(token in concept_tokens for token in tokens):
+            return False
+
+        heading_tokens = {
+            "title",
+            "text",
+            "note",
+            "notes",
+            "quiz",
+            "assignment",
+            "material",
+            "announcement",
+            "course",
+            "classroom",
+            "lesson",
+            "module",
+            "unit",
+        }
+        if any(token in heading_tokens for token in tokens):
+            return False
+        if len(tokens) == 1 and tokens[0] in heading_tokens:
+            return False
+        if len(tokens) == 2 and set(tokens).issubset({"web", "development", "title", "quiz", "text", "note", "notes"}):
+            return False
+        return True
 
     def _merge_by_semantics(self, topics: List[str]) -> List[str]:
         if not self.embedding_model or len(topics) < 2:

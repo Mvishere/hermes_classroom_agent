@@ -1,0 +1,75 @@
+hermes_classroom_agent/
+├── main.py                        # Entrypoint + polling loop, scheduler
+├── config.py                      # Centralized configuration (.env aware)
+├── README.md
+├── requirements.txt
+├── credentials.json
+├── token.json
+├── auth/
+│   └── google_auth.py             # Google OAuth helpers
+├── chat/
+│   ├── cli.py                     # CLI (interactive + batch)
+│   ├── assistant.py               # Chat assistant (retrieval + formatting)
+│   ├── router.py
+│   └── tools/
+│       ├── factual_tool.py
+│       ├── summarization_tool.py
+│       └── general_tool.py
+├── classroom/
+│   ├── classroom_client.py
+│   ├── materials.py
+│   ├── coursework.py
+│   └── announcements.py
+├── rag/
+│   ├── embeddings.py              # sentence-transformer wrapper
+│   ├── llm.py                     # LocalLLM facade
+│   ├── model_loader.py            # Ollama / transformers / llama.cpp backends
+│   ├── prompts.py                 # Prompts (topic extraction + QA templates)
+│   └── topic_extractor.py         # pipeline glue for topic extraction
+├── topic_graph/
+│   ├── extractor.py               # SemanticTopicExtractor (heuristic + LLM)
+│   ├── cleaner.py                 # TopicCleaner (noise & metadata filters)
+│   ├── normalizer.py              # Canonical naming/aliases
+│   ├── graph_builder.py           # Aggregates payloads -> graph
+│   ├── graph_storage.py           # Read/write data/topic_graph.json
+│   ├── ontology_mapper.py
+│   └── relationship_builder.py
+├── student/
+│   ├── knowledge_store.py         # data/knowledge_state.json persistence
+│   ├── mastery_engine.py
+│   └── knowledge_tracker.py
+├── storage/
+│   ├── json_store.py              # Raw Classroom JSONs under data/
+│   ├── topics_store.py            # Per-item topic payloads in data/topics/
+│   ├── file_storage.py
+│   ├── summary_store.py
+│   └── quiz_storage.py
+├── quiz_extractor/                # Playwright + form parsing
+│   ├── main.py
+│   └── browser/
+├── recommendation/
+│   └── recommender.py
+├── scheduler/
+│   └── polling_scheduler.py
+├── scripts/
+│   └── backfill_submissions.py
+├── backups/                       # archived snapshots of extracted data
+├── tests/                         # unit & integration tests
+│   ├── test_topic_graph_pipeline.py
+│   ├── test_rag_prompt.py
+│   └── ...
+├── data/
+│   ├── materials/
+│   ├── assignments/
+│   ├── announcements/
+│   ├── topics/                     # per-item topic JSONs
+│   ├── rag/
+│   │   ├── materials_index.json
+│   │   └── summaries.json
+│   ├── topic_graph.json
+│   ├── knowledge_state.json
+│   └── browser_profiles/
+├── logs/
+└── docs/
+    ├── DETAILED_ARCHITECTURE.md
+    └── FOLDER_TREE.txt

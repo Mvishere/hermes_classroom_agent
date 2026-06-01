@@ -30,6 +30,8 @@ _ALIASES = {
     "js": "javascript",
     "ui": "user interface",
     "ux": "user experience",
+    "html css": "html css",
+    "css html": "html css",
 }
 
 _DISPLAY_NAMES = {
@@ -48,6 +50,7 @@ _DISPLAY_NAMES = {
     "responsive design": "Responsive Design",
     "dom manipulation": "DOM Manipulation",
     "javascript events": "JavaScript Events",
+    "html css": "HTML/CSS",
     "css basics": "CSS Basics",
     "function": "Function",
     "query": "Query",

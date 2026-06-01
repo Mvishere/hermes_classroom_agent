@@ -64,12 +64,27 @@ def main() -> int:
         print(f"Chat batch mode: {len(questions)} question(s)")
         for index, question in enumerate(questions, start=1):
             started = time.perf_counter()
-            answer = router.handle(question)
+            route = router.route(question)
+            answer = route.answer
             elapsed = time.perf_counter() - started
-            results.append({"question": question, "answer": answer, "seconds": round(elapsed, 2)})
+            context = _format_context(route)
+            results.append(
+                {
+                    "question": question,
+                    "context": context,
+                    "answer": answer,
+                    "seconds": round(elapsed, 2),
+                    "intent": route.intent,
+                    "engine": route.engine,
+                    "confidence": route.confidence,
+                    "evidence_source": route.evidence_source,
+                }
+            )
             if args.show_timing:
                 print(f"[{index}/{len(questions)}] {elapsed:.2f}s | Q: {question}")
             print(f"Student> {question}")
+            print("Context>")
+            print(context)
             print(f"Assistant> {answer}")
         if args.batch_output:
             Path(args.batch_output).write_text(
@@ -88,7 +103,10 @@ def main() -> int:
             break
         if not question:
             continue
-        answer = router.handle(question)
+        route = router.route(question)
+        answer = route.answer
+        print("Context>")
+        print(_format_context(route))
         print(f"Assistant> {answer}")
 
     return 0
@@ -104,6 +122,18 @@ def _load_questions(path: Path, limit: int) -> list[str]:
         if limit and len(lines) >= limit:
             break
     return lines
+
+
+def _format_context(route) -> str:
+    payload = {
+        "intent": route.intent,
+        "document_type": route.document_type,
+        "engine": route.engine,
+        "confidence": route.confidence,
+        "evidence_source": route.evidence_source,
+        "matched_documents": route.matched_documents,
+    }
+    return json.dumps(payload, ensure_ascii=True, indent=2)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
 import config
+import os
 from auth.google_auth import get_classroom_service, get_drive_service
 from classroom.announcements import process_announcements
 from classroom.classroom_client import ClassroomClient
@@ -197,6 +198,11 @@ def main() -> int:
         logging.error("Configuration error: %s", exc)
         return 1
 
+    # Safe demo mode: set MAIN_SAFE_MODE=1 to perform startup checks and exit cleanly
+    if os.getenv("MAIN_SAFE_MODE", "0") == "1":
+        logging.info("MAIN_SAFE_MODE enabled — startup checks complete. Exiting safely.")
+        return 0
+
     json_store = JsonStore(config.DATA_DIRECTORY)
     state_manager = StateManager(config.STATE_PATH)
     user_status = UserStatusManager(config.USER_STATUS_PATH)
@@ -244,8 +250,8 @@ def main() -> int:
             topic_llm = LocalLLM(
                 str(llm_path),
                 device=config.RAG_DEVICE,
-                max_new_tokens=config.RAG_MAX_NEW_TOKENS,
-                temperature=config.RAG_TEMPERATURE,
+                max_new_tokens=config.LLM_MAX_NEW_TOKENS,
+                temperature=config.LLM_TEMPERATURE,
             )
         else:
             logging.warning(
