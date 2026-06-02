@@ -113,6 +113,9 @@ TOPIC_GRAPH_DEBUG = os.getenv("TOPIC_GRAPH_DEBUG", "0").strip() == "1"
 TOPIC_GRAPH_MIN_EDGE_WEIGHT = _env_float("TOPIC_GRAPH_MIN_EDGE_WEIGHT", 0.65)
 TOPIC_GRAPH_MAX_RELATED = _env_int("TOPIC_GRAPH_MAX_RELATED", 6)
 TOPIC_GRAPH_MIN_TOPIC_FREQUENCY = _env_int("TOPIC_GRAPH_MIN_TOPIC_FREQUENCY", 2)
+CHROMA_PERSIST_DIR = "data/chroma_db"
+EMBEDDING_MODEL_PATH = "mxbai-embed-large"
+OLLAMA_BASE_URL = "http://localhost:11434"
 
 SCOPES = [
     "https://www.googleapis.com/auth/classroom.courses.readonly",

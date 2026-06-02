@@ -5,37 +5,37 @@ from __future__ import annotations
 import logging
 from typing import Iterable, List
 
-from rag.topic_extractor import TopicExtractor
+from topic_graph.extractor import TopicExtractor
 from recommendation.recommender import Recommender
 from storage.recommendation_store import RecommendationStore
 from storage.topics_store import TopicsStore
-from student.inference_rules import InferenceRules
 from student.knowledge_store import KnowledgeStore
-from student.topic_graph_builder import TopicGraphBuilder
 from storage.json_store import JsonStore
+from topic_graph.graph_generator import GraphGenerator
+from student.knowledge_updater import KnowledgeUpdater
 
 
 class KnowledgeTracker:
-    """Coordinates topic extraction and knowledge updates."""
+    """Coordinates topic extraction, knowledge updates, and graph generation."""
 
     def __init__(
         self,
         topics_store: TopicsStore,
         knowledge_store: KnowledgeStore,
-        inference_rules: InferenceRules,
         topic_extractor: TopicExtractor,
+        knowledge_updater: KnowledgeUpdater,
         recommender: Recommender,
         recommendation_store: RecommendationStore,
-        graph_builder: TopicGraphBuilder,
+        graph_generator: GraphGenerator,
         enabled: bool = True,
     ) -> None:
         self.topics_store = topics_store
         self.knowledge_store = knowledge_store
-        self.inference_rules = inference_rules
         self.topic_extractor = topic_extractor
+        self.knowledge_updater = knowledge_updater
         self.recommender = recommender
         self.recommendation_store = recommendation_store
-        self.graph_builder = graph_builder
+        self.graph_generator = graph_generator
         self.enabled = enabled
 
     def process_new_items(
@@ -48,108 +48,177 @@ class KnowledgeTracker:
         if not self.enabled:
             return
 
-        assignments = json_store.get_items_by_ids("assignments", assignment_ids)
-        materials = json_store.get_items_by_ids("materials", material_ids)
-        announcements = json_store.get_items_by_ids("announcements", announcement_ids)
+        assignments = json_store.get_items_by_ids(
+            "assignments",
+            assignment_ids,
+        )
+
+        materials = json_store.get_items_by_ids(
+            "materials",
+            material_ids,
+        )
+
+        announcements = json_store.get_items_by_ids(
+            "announcements",
+            announcement_ids,
+        )
 
         logging.info(
-            "Topic extraction for new items. Assignments: %s, materials: %s, announcements: %s",
+            (
+                "Topic extraction for new items. "
+                "Assignments=%s Materials=%s Announcements=%s"
+            ),
             len(assignments),
             len(materials),
             len(announcements),
         )
 
-        self._extract_for_items(assignments, "assignments")
-        self._extract_for_items(materials, "materials")
-        self._extract_for_items(announcements, "announcements")
-        self.graph_builder.rebuild(self.topics_store, self.knowledge_store)
+        knowledge_updated = False
+        knowledge_updated |= self._extract_for_items(
+            assignments,
+            "assignments",
+            update_knowledge=True,
+        )
+
+        knowledge_updated |= self._extract_for_items(
+            materials,
+            "materials",
+            update_knowledge=True,
+        )
+
+        knowledge_updated |= self._extract_for_items(
+            announcements,
+            "announcements",
+            update_knowledge=False,
+        )
+
+        if knowledge_updated:
+            self.knowledge_store.save()
+            logging.info("Knowledge store updated.")
+
+        # Rebuild semantic graph from all extracted payloads
+        payloads = self.topics_store.list_payloads()
+
+        if payloads:
+            self.graph_generator.rebuild(self.topics_store, self.knowledge_store)
+            logging.info(
+                "Topic graph rebuilt using %s payloads.",
+                len(payloads),
+            )
 
     def generate_recommendations(
-        self, json_store: JsonStore, material_ids: List[str]
+        self,
+        json_store: JsonStore,
+        material_ids: List[str],
     ) -> None:
         if not self.enabled:
             return
-        materials = json_store.get_items_by_ids("materials", material_ids)
-        self._recommend_for_items(materials, "materials")
 
-    def update_from_assignments(self, assignments: List[dict]) -> int:
-        if not self.enabled:
-            return 0
+        materials = json_store.get_items_by_ids(
+            "materials",
+            material_ids,
+        )
 
-        updates = 0
-        for assignment in assignments:
-            if not self._is_completed(assignment):
-                continue
-            course_id = assignment.get("course_id", "")
-            item_id = assignment.get("id", "")
-            topics_payload = self.topics_store.get_topics(
-                "assignments", course_id, item_id
-            )
-            if not topics_payload:
-                continue
-            topics = topics_payload.get("topics", [])
-            if not topics:
-                continue
-            score = self._extract_score(assignment)
-            updates += self.inference_rules.apply_assignment_completion(
-                self.knowledge_store, topics, evidence=item_id, score=score
-            )
+        self._recommend_for_items(
+            materials,
+            "materials",
+        )
 
-        updates += self.inference_rules.apply_decay(self.knowledge_store)
-        if updates:
-            self.knowledge_store.save()
-            logging.info("Knowledge tracker updates applied: %s", updates)
-            self.graph_builder.rebuild(self.topics_store, self.knowledge_store)
-        return updates
+    def _extract_for_items(
+        self,
+        items: Iterable[dict],
+        item_type: str,
+        update_knowledge: bool,
+    ) -> bool:
+        """
+        Extract topics and optionally update the knowledge store.
 
-    def _extract_for_items(self, items: Iterable[dict], item_type: str) -> None:
+        Returns:
+            bool: True if knowledge store was modified.
+        """
+
+        knowledge_updated = False
+        logging.info("ENTER _extract_for_items: %s items", len(items))
         for item in items:
+            
             course_id = item.get("course_id", "")
             item_id = item.get("id", "")
+            logging.info("Processing item_id=%s", item_id)
             if not course_id or not item_id:
                 continue
-            if self.topics_store.has_topics(item_type, course_id, item_id):
+
+            if self.topics_store.has_topics(
+                item_type,
+                course_id,
+                item_id,
+            ):
                 continue
             try:
-                payload = self.topic_extractor.extract(item, item_type)
+                payload = self.topic_extractor.extract(
+                    item,
+                    item_type,
+                )
+                logging.info(
+                    "Topic extraction done for %s: %s",
+                    item_id,
+                    payload
+                )
             except Exception:
-                logging.exception("Topic extraction failed for %s", item_id)
+                logging.exception(
+                    "Topic extraction failed for %s",
+                    item_id,
+                )
                 continue
+
             self.topics_store.upsert_topics(payload)
+            if update_knowledge:
+                try:
+                    self.knowledge_updater.process_payload(
+                        payload,
+                        self.knowledge_store,
+                    )
+                    knowledge_updated = True
 
-    def _recommend_for_items(self, items: Iterable[dict], item_type: str) -> None:
+                except Exception:
+                    logging.exception(
+                        "Knowledge update failed for %s",
+                        item_id,
+                    )
+                    continue   # 🔥 IMPORTANT: DO NOT RETURN
+
+        return knowledge_updated or False
+
+    def _recommend_for_items(
+        self,
+        items: Iterable[dict],
+        item_type: str,
+    ) -> None:
         for item in items:
             course_id = item.get("course_id", "")
             item_id = item.get("id", "")
+
             if not course_id or not item_id:
                 continue
-            topics_payload = self.topics_store.get_topics(item_type, course_id, item_id)
+
+            topics_payload = self.topics_store.get_topics(
+                item_type,
+                course_id,
+                item_id,
+            )
+
             if not topics_payload:
                 continue
+
             topics = topics_payload.get("topics", [])
-            recommendation = self.recommender.recommend(item, topics, item_type)
+
+            recommendation = self.recommender.recommend(
+                item,
+                topics,
+                item_type,
+            )
+
             if recommendation:
-                self.recommendation_store.upsert_recommendation(item, recommendation)
-
-    def _is_completed(self, assignment: dict) -> bool:
-        submission_state = assignment.get("submission_state", "").upper()
-        if submission_state in {"TURNED_IN", "RETURNED"}:
-            return True
-        return assignment.get("completed") is True
-
-    def _extract_score(self, assignment: dict) -> float | None:
-        score = assignment.get("assignedGrade")
-        if score is None:
-            score = assignment.get("draftGrade")
-        if score is None:
-            return None
-        max_points = assignment.get("maxPoints")
-        if max_points:
-            try:
-                return float(score) / float(max_points)
-            except Exception:
-                return None
-        try:
-            return float(score)
-        except Exception:
-            return None
+                self.recommendation_store.upsert_recommendation(
+                    item,
+                    recommendation,
+                )

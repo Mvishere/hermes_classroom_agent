@@ -1,13 +1,15 @@
 """Google Classroom API client with retries and pagination."""
 
 import logging
+import os
 import random
 import time
 from typing import Callable, List
+from auth.google_auth import get_credentials
 
 from googleapiclient.errors import HttpError
 
-from config import API_BACKOFF_BASE_SECONDS, API_MAX_RETRIES, API_THROTTLE_SECONDS
+from config import API_BACKOFF_BASE_SECONDS, API_MAX_RETRIES, API_THROTTLE_SECONDS, SCOPES
 
 
 class ClassroomClient:
@@ -112,3 +114,17 @@ class ClassroomClient:
             return self.service.courses().courseWork().studentSubmissions().list(**params)
 
         return self._list_with_pagination(builder, "studentSubmissions", "courses.courseWork.studentSubmissions.list")
+
+if __name__ == "__main__":
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+
+    SERVICE_ACCOUNT_FILE = "token.json"
+
+    credentials = get_credentials()
+    classroom_service = build("classroom", "v1", credentials=credentials)
+    client = ClassroomClient(classroom_service)
+
+    courses = client.list_courses()
+    materials = client.list_coursework_materials(courses[0]["id"])
+    print(f"Found {len(materials)} coursework materials. {materials[0]}")

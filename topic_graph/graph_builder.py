@@ -13,7 +13,6 @@ from student.knowledge_store import KnowledgeStore
 from topic_graph.graph_storage import TopicGraphStore
 from topic_graph.normalizer import TopicNormalizer
 from topic_graph.ontology_mapper import OntologyMapper
-from topic_graph.relationship_builder import RelationshipBuilder
 
 
 class SemanticTopicGraphBuilder:
@@ -30,13 +29,6 @@ class SemanticTopicGraphBuilder:
         self.graph = graph
         self.normalizer = TopicNormalizer()
         self.ontology = OntologyMapper(self.normalizer)
-        self.relationship_builder = RelationshipBuilder(
-            embedding_model=embedding_model,
-            normalizer=self.normalizer,
-            min_weight=min_edge_weight,
-            max_related=max_related,
-            debug=debug,
-        )
         self.debug = debug
 
     def rebuild(self, topics_store: TopicsStore, knowledge_store: KnowledgeStore) -> None:

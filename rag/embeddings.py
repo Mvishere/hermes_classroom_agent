@@ -1,20 +1,26 @@
-"""Embedding model wrapper for local retrieval."""
-
-from typing import List
-
-from sentence_transformers import SentenceTransformer
+import requests
 
 
 class EmbeddingModel:
-    """Loads a local embedding model and encodes text."""
+    """
+    Ollama embedding wrapper (mxbai-embed-large)
+    """
 
-    def __init__(self, model_path: str, device: str = "cpu"):
-        if not model_path:
-            raise ValueError("Embedding model path is required.")
-        self.model = SentenceTransformer(model_path, device=device)
+    def __init__(self, model_name: str = "mxbai-embed-large"):
+        self.model = model_name
 
-    def encode(self, texts: List[str]) -> List[List[float]]:
-        vectors = self.model.encode(
-            texts, convert_to_numpy=True, normalize_embeddings=True
-        )
-        return vectors.tolist()
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        embeddings = []
+
+        for text in texts:
+            res = requests.post(
+                "http://localhost:11434/api/embeddings",
+                json={
+                    "model": self.model,
+                    "prompt": text
+                }
+            )
+            res.raise_for_status()
+            embeddings.append(res.json()["embedding"])
+
+        return embeddings

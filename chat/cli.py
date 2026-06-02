@@ -1,140 +1,172 @@
-"""CLI for the local Classroom chat assistant."""
-
-from __future__ import annotations
-
-import argparse
 import json
-import time
+import logging
 from pathlib import Path
 
-import config
-from chat.assistant import ChatAssistant
+import pandas as pd
+
+from rag.pipeline import RagPipeline
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Local Classroom chat assistant")
-    parser.add_argument(
-        "--batch-file",
-        default="",
-        help="Optional path to a text file containing one question per line.",
-    )
-    parser.add_argument(
-        "--batch-output",
-        default="",
-        help="Optional path to write JSON results for batch mode.",
-    )
-    parser.add_argument(
-        "--batch-limit",
-        type=int,
-        default=0,
-        help="Optional maximum number of batch questions to run.",
-    )
-    parser.add_argument(
-        "--show-timing",
-        action="store_true",
-        help="Print per-question latency in batch mode.",
-    )
-    return parser
+# -----------------------------
+# DATA LOADERS
+# -----------------------------
 
+def load_all_topics():
+    """
+    Loads all JSON topic files from:
+    data/topics/assignments/
+    data/topics/materials/
+    """
+    base_path = Path("data") / "topics"
 
-def main() -> int:
-    args = build_parser().parse_args()
-    if not config.RAG_ENABLED:
-        print("Chat is disabled. Set RAG_ENABLED=1 to enable it.")
-        return 1
-    if not config.LLM_MODEL_PATH or not config.EMBEDDING_MODEL_PATH:
-        print("Missing LLM or embedding model path in config.")
-        return 1
+    if not base_path.exists():
+        return {}
 
-    assistant = ChatAssistant(
-        data_dir=config.DATA_DIRECTORY,
-        llm_model_path=config.LLM_MODEL_PATH,
-        embedding_model_path=config.EMBEDDING_MODEL_PATH,
-        device=config.RAG_DEVICE,
-        top_k=config.RAG_TOP_K,
-        max_context_chars=config.RAG_CONTEXT_MAX_CHARS,
-        max_history_turns=config.CHAT_MAX_HISTORY_TURNS,
-    )
-    from chat.router import Router
-    router = Router(assistant, config.DATA_DIRECTORY)
-
-    if args.batch_file:
-        questions = _load_questions(Path(args.batch_file), args.batch_limit)
-        results = []
-        print(f"Chat batch mode: {len(questions)} question(s)")
-        for index, question in enumerate(questions, start=1):
-            started = time.perf_counter()
-            route = router.route(question)
-            answer = route.answer
-            elapsed = time.perf_counter() - started
-            context = _format_context(route)
-            results.append(
-                {
-                    "question": question,
-                    "context": context,
-                    "answer": answer,
-                    "seconds": round(elapsed, 2),
-                    "intent": route.intent,
-                    "engine": route.engine,
-                    "confidence": route.confidence,
-                    "evidence_source": route.evidence_source,
-                }
-            )
-            if args.show_timing:
-                print(f"[{index}/{len(questions)}] {elapsed:.2f}s | Q: {question}")
-            print(f"Student> {question}")
-            print("Context>")
-            print(context)
-            print(f"Assistant> {answer}")
-        if args.batch_output:
-            Path(args.batch_output).write_text(
-                json.dumps(results, ensure_ascii=True, indent=2), encoding="utf-8"
-            )
-        return 0
-
-    print("Chat ready. Type 'exit' to quit.")
-    while True:
-        try:
-            question = input("Student> ").strip()
-        except (KeyboardInterrupt, EOFError):
-            print()
-            break
-        if question.lower() in {"exit", "quit"}:
-            break
-        if not question:
-            continue
-        route = router.route(question)
-        answer = route.answer
-        print("Context>")
-        print(_format_context(route))
-        print(f"Assistant> {answer}")
-
-    return 0
-
-
-def _load_questions(path: Path, limit: int) -> list[str]:
-    lines = []
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        question = raw_line.strip()
-        if not question or question.startswith("#"):
-            continue
-        lines.append(question)
-        if limit and len(lines) >= limit:
-            break
-    return lines
-
-
-def _format_context(route) -> str:
-    payload = {
-        "intent": route.intent,
-        "document_type": route.document_type,
-        "engine": route.engine,
-        "confidence": route.confidence,
-        "evidence_source": route.evidence_source,
-        "matched_documents": route.matched_documents,
+    result = {
+        "dict": []
     }
-    return json.dumps(payload, ensure_ascii=True, indent=2)
 
+    for subfolder in base_path.iterdir():
+        if not subfolder.is_dir():
+            continue
+
+        category = subfolder.name
+
+        for file in subfolder.glob("*.json"):
+            try:
+                with open(file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                if isinstance(data, list):
+                    result[category].extend(data)
+                else:
+                    result[category].append(data)
+
+            except Exception as e:
+                logging.exception(f"Failed loading topic file {file}: {e}")
+
+    return result
+
+
+def load_csv_context():
+    """
+    Loads CSV metadata:
+    data/announcements.csv
+    data/courses.csv
+    data/materials.csv
+    """
+    base = Path("data")
+
+    files = {
+        "announcements": base / "announcements.csv",
+        "courses": base / "courses.csv",
+        "materials": base / "materials.csv",
+    }
+
+    data = {}
+
+    for key, path in files.items():
+        if path.exists():
+            try:
+                df = pd.read_csv(path)
+                data[key] = df.to_dict(orient="records")
+            except Exception as e:
+                data[key] = [{"error": str(e)}]
+        else:
+            data[key] = []
+
+    return data
+
+
+# -----------------------------
+# CHAT CLI
+# -----------------------------
+
+class RagChatCLI:
+    def __init__(self):
+        self.rag = RagPipeline()
+        self.llm = self.rag.llm
+
+    def ask(self, query: str) -> str:
+        # 1. Embed query
+        query_embedding = self.rag.embedding_model.encode([query])[0]
+
+        # 2. Retrieve from Chroma
+        contexts = self.rag.chroma_store.search(
+            query_embedding=query_embedding,
+            top_k=5
+        )
+
+        context_text = "\n\n".join(
+            c.get("text", "") for c in contexts
+        )
+
+        # 3. Load structured data
+        topics_data = load_all_topics()
+        csv_data = load_csv_context()
+
+        # 4. Build STUDY ASSISTANT PROMPT
+        prompt = f"""
+You are a STUDY ASSISTANT AI for a classroom learning system.
+
+You must:
+- Use ONLY the provided context
+- Prefer structured reasoning
+- If information is missing, clearly say so
+- Keep answers simple and student-friendly
+- Metadata is provided for reference but not all fields may be relevant
+
+---
+
+📚 TOPICS DATA:
+{json.dumps(topics_data, indent=2)}
+
+📊 COURSES (CSV):
+{json.dumps(csv_data.get("courses", []), indent=2)}
+
+📢 ANNOUNCEMENTS (CSV):
+{json.dumps(csv_data.get("announcements", []), indent=2)}
+
+📘 MATERIALS METADATA (CSV):
+{json.dumps(csv_data.get("materials", []), indent=2)}
+
+---
+
+📖 RETRIEVED CONTEXT (RAG):
+{context_text}
+
+---
+
+❓ QUESTION:
+{query}
+
+---
+
+✍️ FINAL ANSWER:
+"""
+
+        return self.llm.generate(prompt)
+
+    def run(self):
+        print("\n🤖 Study Assistant Ready (type 'exit' to quit)\n")
+
+        while True:
+            query = input("You: ")
+
+            if query.lower() in ["exit", "quit"]:
+                break
+
+            try:
+                answer = self.ask(query)
+                print(f"\nAgent: {answer}\n")
+            except Exception as e:
+                logging.exception("Chat failed")
+                print(f"\nError: {e}\n")
+
+
+# -----------------------------
+# ENTRY POINT
+# -----------------------------
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    RagChatCLI().run()
